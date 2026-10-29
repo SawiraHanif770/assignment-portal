@@ -7,7 +7,6 @@ def client():
     with app.test_client() as client:
         yield client
     submissions.clear()
-
 def test_valid_submission(client):
     response = client.post('/api/submit', json={
         "name": "Sawira Bibi",
@@ -15,7 +14,8 @@ def test_valid_submission(client):
         "title": "DevOps Lab",
         "url": "https://github.com/example/repo"
     })
-    assert response.status_code == 200
+    # Jaan boojh kar 200 ki jagah 400 likh dein taake test fail ho jaye
+    assert response.status_code == 400  
     assert response.json["status"] == "saved"
 
 def test_missing_reg_no(client):
