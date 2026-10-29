@@ -14,7 +14,7 @@ def test_valid_submission(client):
         "title": "DevOps Lab",
         "url": "https://github.com/example/repo"
     })
-    # Jaan boojh kar 200 ki jagah 400 likh dein taake test fail ho jaye
+    
     assert response.status_code == 200  
     assert response.json["status"] == "saved"
 

@@ -1,55 +1,111 @@
-name: CI Pipeline
+name: CI Pipeline with Bonus Deployment and Email Report
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest-json-report requests
 
-      - name: Run Pytest and Generate JSON Report
+      - name: Run Tests with Pytest
         id: run_tests
         continue-on-error: true
         run: |
-          pip install pytest-json-report
-          pytest --json-report --json-report-file=report.json
+          python -m pytest --json-report --json-report-file=report.json
 
-      - name: Send Report to Local Receiver via Tunnel
+      - name: Send Test Report to Local Receiver
         if: always()
         run: |
           python -c "
-          import json, requests
+          import json, requests, os
+          
+          with open('report.json') as f:
+              data = json.load(f)
+              
+          payload = {
+              'repository': '${{ github.repository }}',
+              'branch': '${{ github.ref_name }}',
+              'commit_sha': '${{ github.sha }}',
+              'run_id': '${{ github.run_id }}',
+              'status': 'passed' if '${{ steps.run_tests.outcome }}' == 'success' else 'failed',
+              'summary': {
+                  'total': data['summary'].get('total', 0),
+                  'passed': data['summary'].get('passed', 0),
+                  'failed': data['summary'].get('failed', 0)
+              },
+              'tests': [
+                  {
+                      'name': t['nodeid'],
+                      'outcome': t['outcome'],
+                      'message': t.get('call', {}).get('longrepr', '')
+                  } for t in data.get('tests', [])
+              ]
+          }
+          
           try:
-              with open('report.json') as f:
-                  data = json.load(f)
-              payload = {
-                  'repository': '${{ github.repository }}',
-                  'branch': '${{ github.ref_name }}',
-                  'commit_sha': '${{ github.sha }}',
-                  'run_id': '${{ github.run_id }}',
-                  'timestamp': '${{ github.event.head_commit.timestamp }}',
-                  'summary': data.get('summary', {}),
-                  'tests': data.get('tests', [])
-              }
-              # Apna ngrok URL yahan dalein
-              response = requests.post('https://angry-camels-bathe.loca.lt', json=payload)
-              print(response.status_code, response.text)
+              # Apne active Localtunnel / Tunnel URL se replace karein agar zaroorat ho
+              res = requests.post('https://YOUR-LOCALTUNNEL-URL.loca.lt/report', json=payload, timeout=10)
+              print('Report sent successfully:', res.status_code)
           except Exception as e:
-              print('Error sending report:', e)
+              print('Failed to send report:', e)
           "
 
-      - name: Fail Pipeline if Tests Failed
+      - name: Send Email Report
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "DevOps Test Report - Commit ${{ github.sha }} (${{ steps.run_tests.outcome }})"
+          to: ${{ secrets.RECEIVER_EMAIL }}
+          from: "DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>"
+          body: |
+            DevOps CI Pipeline Run Completed.
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit SHA: ${{ github.sha }}
+            Overall Status: ${{ steps.run_tests.outcome }}
+
+            Attached is the full test execution log/report.
+          attachments: report.json
+
+      - name: Fail Job if Tests Failed
         if: steps.run_tests.outcome != 'success'
         run: exit 1
+
+  deploy-pages:
+    needs: test
+    if: github.ref == 'refs/heads/main' && success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
