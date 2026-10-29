@@ -15,7 +15,7 @@ def test_valid_submission(client):
         "url": "https://github.com/example/repo"
     })
     # Jaan boojh kar 200 ki jagah 400 likh dein taake test fail ho jaye
-    assert response.status_code == 400  
+    assert response.status_code == 200  
     assert response.json["status"] == "saved"
 
 def test_missing_reg_no(client):
